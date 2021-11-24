@@ -1,15 +1,18 @@
+
 #!/usr/bin/env python
 """
 podcast_downloader.py
-
 USAGE:
-    python podcast_downloader.py "https://youtube.com/link" "path/to/output/folder"
+    python podcast_downloader.py "https://youtube.com/link" "path/to/output/folder" 'subs_only'
+	
+	note: last argument (output) is replaced by any other string to include audio tracks, if 'subs_only' argument is passed, ffmpeg is not required
 """
 import click
 import json
 import os
 import re
 import subprocess
+import shutil
 
 from datetime import time
 from typing import *
@@ -66,19 +69,22 @@ def get_subtitles_by_track(
     tracks: List[Dict[str, Any]],
     lang: str = 'en',
     fmt: str = 'vtt',
+    directory=os.getcwd(),
 ) -> Dict[int, List[str]]:
     cmd = (f'{YOUTUBE_DL_EXE} {url}'
            f'   --skip-download'
            f'   --write-sub'
            f'   --sub-lang {lang}'
            f'   --sub-format {fmt}')
-    p = subprocess.run(cmd.split(' '), capture_output=True)
+    p = subprocess.run(cmd.split(' '), capture_output=True) # writes .vtt
     stdout = p.stdout.decode('utf-8').strip()
     s = 'Writing video subtitles to: '
     filename = stdout[stdout.find(s)+len(s):]
 
+    shutil.copy(filename, directory + '\\') # copy .vtt to the output directory where .subs files are
+
     with open(filename) as f:
-        subtitle_sections = list(_yield_subtitle_sections(f.read()))
+        subtitle_sections = list(_yield_subtitle_sections(f.read())) # reads .vtt
 
     return _get_subtitles_by_track_number(subtitle_sections, tracks)
 
@@ -146,6 +152,7 @@ def get_tracks_from_string(string: str) -> List[Dict[str, Any]]:
 
 
 def run_ffmpeg(
+    output,
     input_filename: str,
     artist: str,
     album: str,
@@ -170,12 +177,25 @@ def run_ffmpeg(
             output_format=output_format,
         )
 
-        print(' '.join(cmd_parts))
-        subprocess.run(' '.join(cmd_parts), shell=True)
+        # print(' '.join(cmd_parts))
+        if not output == 'subs_only':
+            # creates individual .webm tracks, not necessary to scrape .subs from .vtt/.json
+            try:
+                subprocess.run(' '.join(cmd_parts), shell=False)
+            except FileNotFoundError:
+                print('ffmpeg.exe must be in python path directory: ' + os.getcwd())
+                print('download from https://ffmpeg.org/download.html')
 
         sub_filename = output_path.rsplit('.', maxsplit=1)[0] + '.subs'
-        with open(sub_filename, 'w') as f:
-            f.write('\n'.join(subtitles[track['track_num']]))
+        tr_no = track['track_num']
+        try:
+            subtitles[tr_no]
+        except KeyError:
+            print('KeyError for track_num ' + str(tr_no) + ' (there are no captions in this track)')
+        else:
+            print('Track no ' + str(tr_no) + ' .subs file written')
+            with open(sub_filename, 'w') as f:
+                f.write('\n'.join(subtitles[track['track_num']]))
 
 
 def _get_ffmpeg_cmd(
@@ -194,11 +214,12 @@ def _get_ffmpeg_cmd(
         (
             f"{' - '.join(str(x) for x in [track_num, track_title, artist, album])}"
             f".{output_format}"
-        ).replace('/', '-').replace(':', '-')
+        ).replace('/', '-').replace(':', '-').replace('?','')
     )
-
     cmd_parts = [
         FFMPEG_EXE,
+        # reduce verboseness
+        '-hide_banner -loglevel error',
         # input file
         '-i "%s"' % input_filename,
         # output options
@@ -213,18 +234,22 @@ def _get_ffmpeg_cmd(
     if end_time:
         cmd_parts.append(f'-to %s' % end_time)  # track end time (hh:mm:ss[.xx])
     cmd_parts.append(f'"{output_file}"')
-
     return output_file, cmd_parts
 
 
 def get_video_info(url: str) -> Tuple[str, Dict]:
     cmd = f'{YOUTUBE_DL_EXE} {url} --write-info-json --skip-download'
-    p = subprocess.run(cmd.split(' '), capture_output=True)
-    stdout = p.stdout.decode('utf-8').strip()
-    s = 'Writing video description metadata as JSON to: '
-    filename = stdout[stdout.find(s)+len(s):]
-    with open(filename) as f:
-        return filename, json.load(f)
+    try:
+        subprocess.run(cmd.split(' '), capture_output=True) # youtube-dl
+    except FileNotFoundError:
+        raise Exception('youtube-dl not found, pip install youtube-dl')	
+    else:
+        p = subprocess.run(cmd.split(' '), capture_output=True) # youtube-dl
+        stdout = p.stdout.decode('utf-8').strip()
+        s = 'Writing video description metadata as JSON to: '
+        filename = stdout[stdout.find(s)+len(s):] # .json
+        with open(filename) as f:
+            return filename, json.load(f)
 
 
 # def get_yt_video_details(url):
@@ -249,9 +274,14 @@ def get_video_info(url: str) -> Tuple[str, Dict]:
 @click.command()
 @click.argument('url')
 @click.argument('directory')
-def main(url, directory):
-    print('downloading video info')
-    video_info_filename, video_info = get_video_info(url)
+@click.argument('output')
+def main(url, directory, output='all'):
+    # url is that of the youtube video with closed captions to be extracted
+    # directory can include forward- or back-slashes
+    # output: 'subs_only' will only extract subtitle data and place into tracks, if this argument is not passed to
+    # function then ffmpeg.exe will be used to break the audio into tracks
+    print('downloading video/audio track info, checking if data exists locally')
+    video_info_filename, video_info = get_video_info(url) # write json file
 
     audio_formats = sorted(
         [x for x in video_info['formats']
@@ -265,21 +295,32 @@ def main(url, directory):
     print(f'selected audio format {fmt["format"]}')
 
     filename = get_filename(url, format_id=fmt['format_id'])
+
     if not os.path.exists(filename):
+        print('downloading youtube data')
         download_file(url, format_id=fmt['format_id'])
+    else:
+        print('found youtube data file locally')
 
     tracks = get_tracks_from_string(video_info['description'])
-
-    run_ffmpeg(filename,
+    output_dir = directory.replace('/', '\\')
+    run_ffmpeg(output,
+               filename,
                artist=video_info['channel'],
                album=(video_info['title']
                       .split('|')[0]
                       .replace('/', '-')
-                      .replace(':', '-')),
+                      .replace(':', '-')
+                      .replace('?', '-')),
                tracks=tracks,
-               output_directory=directory,
+               output_directory=output_dir,
                output_format=fmt['acodec'],
-               subtitles=get_subtitles_by_track(url, tracks))
+               subtitles=get_subtitles_by_track(url, tracks, directory=output_dir) # directory here included to place
+               # the .vtt file with the .subs files
+               )
+
+    print('youtube data (.webm), full subtitle track with video time (.vtt) location: ' + os.getcwd())
+    print('scrubbed subtitle data (no times listed) broken into tracks (.subs) location: ' + output_dir)
 
     # os.remove(video_info_filename)
     # os.remove(filename)
