@@ -274,7 +274,7 @@ def get_video_info(url: str) -> Tuple[str, Dict]:
 @click.command()
 @click.argument('url')
 @click.argument('directory')
-@click.argument('output')
+@click.option('--output', type=click.Choice(['subs_only', 'all'], case_sensitive=False))
 def main(url, directory, output='all'):
     # url is that of the youtube video with closed captions to be extracted
     # directory can include forward- or back-slashes
@@ -320,7 +320,7 @@ def main(url, directory, output='all'):
                )
 
     print('youtube data (.webm), full subtitle track with video time (.vtt) location: ' + os.getcwd())
-    print('scrubbed subtitle data (no times listed) broken into tracks (.subs) location: ' + output_dir)
+    print('scrubbed subtitle data (no times listed) broken into tracks (.subs) & copy of .vtt location: ' + output_dir)
 
     # os.remove(video_info_filename)
     # os.remove(filename)
