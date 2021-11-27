@@ -1,5 +1,4 @@
-
-#!/usr/bin/env python
+# !/usr/bin/env python
 """
 podcast_downloader.py
 USAGE:
@@ -65,26 +64,27 @@ class SubtitleSection:
 
 
 def get_subtitles_by_track(
-    url: str,
-    tracks: List[Dict[str, Any]],
-    lang: str = 'en',
-    fmt: str = 'vtt',
-    directory=os.getcwd(),
+        url: str,
+        tracks: List[Dict[str, Any]],
+        lang: str = 'en',
+        fmt: str = 'vtt',
+        directory=None,
 ) -> Dict[int, List[str]]:
+    directory = directory or os.getcwd()  # if no directory is set, fall back on current working dir
     cmd = (f'{YOUTUBE_DL_EXE} {url}'
            f'   --skip-download'
            f'   --write-sub'
            f'   --sub-lang {lang}'
            f'   --sub-format {fmt}')
-    p = subprocess.run(cmd.split(' '), capture_output=True) # writes .vtt
+    p = subprocess.run(cmd.split(' '), capture_output=True)  # writes .vtt
     stdout = p.stdout.decode('utf-8').strip()
     s = 'Writing video subtitles to: '
-    filename = stdout[stdout.find(s)+len(s):]
+    filename = stdout[stdout.find(s) + len(s):]
 
-    shutil.copy(filename, directory + '\\') # copy .vtt to the output directory where .subs files are
+    shutil.copy(filename, directory + os.sep)  # copy .vtt to the output directory where .subs files are
 
     with open(filename) as f:
-        subtitle_sections = list(_yield_subtitle_sections(f.read())) # reads .vtt
+        subtitle_sections = list(_yield_subtitle_sections(f.read()))  # reads .vtt
 
     return _get_subtitles_by_track_number(subtitle_sections, tracks)
 
@@ -105,8 +105,8 @@ def _yield_subtitle_sections(subs: str) -> Iterable[SubtitleSection]:
 
 
 def _get_subtitles_by_track_number(
-    subtitles: List[SubtitleSection],
-    tracks: List[Dict[str, Any]],
+        subtitles: List[SubtitleSection],
+        tracks: List[Dict[str, Any]],
 ) -> Dict[int, List[str]]:
     subs_by_track = {}
     track_i = 0
@@ -152,14 +152,14 @@ def get_tracks_from_string(string: str) -> List[Dict[str, Any]]:
 
 
 def run_ffmpeg(
-    output,
-    input_filename: str,
-    artist: str,
-    album: str,
-    tracks: List[dict],
-    output_directory: str,
-    output_format: str,
-    subtitles: Dict[int, List[str]],
+        output,
+        input_filename: str,
+        artist: str,
+        album: str,
+        tracks: List[dict],
+        output_directory: str,
+        output_format: str,
+        subtitles: Dict[int, List[str]],
 ) -> None:
     if not os.path.exists(output_directory):
         os.mkdir(output_directory)
@@ -199,22 +199,22 @@ def run_ffmpeg(
 
 
 def _get_ffmpeg_cmd(
-    input_filename: str,
-    start_time: str,
-    end_time: str,
-    artist: str,
-    album: str,
-    track_title: str,
-    track_num: int,
-    output_directory: str,
-    output_format: str,
+        input_filename: str,
+        start_time: str,
+        end_time: str,
+        artist: str,
+        album: str,
+        track_title: str,
+        track_num: int,
+        output_directory: str,
+        output_format: str,
 ) -> Tuple[str, List[str]]:
     output_file = os.path.join(
         output_directory,
         (
             f"{' - '.join(str(x) for x in [track_num, track_title, artist, album])}"
             f".{output_format}"
-        ).replace('/', '-').replace(':', '-').replace('?','')
+        ).replace('/', '-').replace(':', '-').replace('?', '')
     )
     cmd_parts = [
         FFMPEG_EXE,
@@ -240,14 +240,14 @@ def _get_ffmpeg_cmd(
 def get_video_info(url: str) -> Tuple[str, Dict]:
     cmd = f'{YOUTUBE_DL_EXE} {url} --write-info-json --skip-download'
     try:
-        subprocess.run(cmd.split(' '), capture_output=True) # youtube-dl
+        subprocess.run(cmd.split(' '), capture_output=True)  # youtube-dl
     except FileNotFoundError:
-        raise Exception('youtube-dl not found, pip install youtube-dl')	
+        raise Exception('youtube-dl not found, pip install youtube-dl')
     else:
-        p = subprocess.run(cmd.split(' '), capture_output=True) # youtube-dl
+        p = subprocess.run(cmd.split(' '), capture_output=True)  # youtube-dl
         stdout = p.stdout.decode('utf-8').strip()
         s = 'Writing video description metadata as JSON to: '
-        filename = stdout[stdout.find(s)+len(s):] # .json
+        filename = stdout[stdout.find(s) + len(s):]  # .json
         with open(filename) as f:
             return filename, json.load(f)
 
@@ -281,7 +281,7 @@ def main(url, directory, output='all'):
     # output: 'subs_only' will only extract subtitle data and place into tracks, if this argument is not passed to
     # function then ffmpeg.exe will be used to break the audio into tracks
     print('downloading video/audio track info, checking if data exists locally')
-    video_info_filename, video_info = get_video_info(url) # write json file
+    video_info_filename, video_info = get_video_info(url)  # write json file
 
     audio_formats = sorted(
         [x for x in video_info['formats']
@@ -315,7 +315,7 @@ def main(url, directory, output='all'):
                tracks=tracks,
                output_directory=output_dir,
                output_format=fmt['acodec'],
-               subtitles=get_subtitles_by_track(url, tracks, directory=output_dir) # directory here included to place
+               subtitles=get_subtitles_by_track(url, tracks, directory=output_dir)  # directory here included to place
                # the .vtt file with the .subs files
                )
 
